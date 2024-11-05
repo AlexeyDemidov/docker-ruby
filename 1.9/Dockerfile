@@ -1,7 +1,22 @@
-FROM buildpack-deps:jessie
+FROM buildpack-deps:bullseye
 
-ENV RUBY_MAJOR 1.9
-ENV RUBY_VERSION 1.9.3-p551
+ENV RUBY_MAJOR=1.9
+ENV RUBY_VERSION=1.9.3-p551
+
+ENV OPENSSL_VERSION=1.0.2u
+
+# Download, compile, and install OpenSSL 1.0.2u
+RUN curl -SL "https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz" \
+    | tar -xzC /tmp \
+    && cd /tmp/openssl-$OPENSSL_VERSION \
+    && ./config --prefix=/usr/local/openssl --openssldir=/etc/ssl shared zlib \
+    && make \
+    && make install \
+    && rm -rf /tmp/openssl-$OPENSSL_VERSION
+
+# Update library path for OpenSSL
+ENV PATH="/usr/local/openssl/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/openssl/lib"
 
 # some of ruby's build scripts are written in ruby
 # we purge this later to make sure our final image uses what we just built
@@ -13,7 +28,7 @@ RUN apt-get update \
 		| tar -xjC /usr/src/ruby --strip-components=1 \
 	&& cd /usr/src/ruby \
 	&& autoconf \
-	&& ./configure --disable-install-doc \
+	&& ./configure --disable-install-doc --with-openssl-dir=/usr/local/openssl \
 	&& make \
 	&& make install \
 	&& apt-get purge -y --auto-remove bison libgdbm-dev ruby \
@@ -23,13 +38,15 @@ RUN apt-get update \
 RUN echo 'gem: --no-rdoc --no-ri' >> "$HOME/.gemrc"
 
 # install things globally, for great justice
-ENV GEM_HOME /usr/local/bundle
-ENV PATH $GEM_HOME/bin:$PATH
-RUN gem install bundler \
+ENV GEM_HOME=/usr/local/bundle
+ENV PATH=$GEM_HOME/bin:$PATH
+RUN gem install bundler -v 1.17.3 \
 	&& bundle config --global path "$GEM_HOME" \
 	&& bundle config --global bin "$GEM_HOME/bin"
 
 # don't create ".bundle" in all our apps
-ENV BUNDLE_APP_CONFIG $GEM_HOME
+ENV BUNDLE_APP_CONFIG=$GEM_HOME
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
 
 CMD [ "irb" ]
